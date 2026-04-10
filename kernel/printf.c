@@ -3,6 +3,7 @@
 //
 
 #include <stdarg.h>
+#include <inttypes.h>
 
 #include "types.h"
 #include "param.h"
@@ -139,6 +140,7 @@ panic(char *s)
   panicking = 1;
   printf("panic: ");
   printf("%s\n", s);
+  backtrace();
   panicked = 1; // freeze uart output from other CPUs
   for(;;)
     ;
@@ -148,4 +150,21 @@ void
 printfinit(void)
 {
   initlock(&pr.lock, "pr");
+}
+
+void
+backtrace(void) 
+{
+  uint64 *fp = (uint64 *)r_fp(); // fp points into stack
+
+  while(fp != 0){
+    uint64 ra = *(fp - 1);       // ra points into calling function
+    printf("%p\n", (void *)ra);
+
+    uint64 *prev_fp = (uint64 *)*(fp - 2);
+    if(PGROUNDDOWN((uint64)fp) != PGROUNDDOWN((uint64)prev_fp)){
+      break;
+    }
+    fp = (uint64 *)*(fp - 2);
+  }
 }
