@@ -80,9 +80,17 @@ usertrap(void)
   if(killed(p))
     kexit(-1);
 
-  // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2)
+  // give up the CPU if this is a timer interrupt. do sigalarm() stuff.
+  if(which_dev == 2){
     yield();
+
+    if(p->alarm_tick) {
+      p->ticks_passed += 1;
+        if(p->ticks_passed % p->alarm_tick == 0) { // ticks_passed is ensured to be nonzero
+      p->trapframe->epc = (uint64)p->handler;
+      }
+    }    
+  }
 
   prepare_return();
 

@@ -124,7 +124,10 @@ allocproc(void)
 found:
   p->pid = allocpid();
   p->state = USED;
-
+  // Default initialization for sigalarm() - 0 == 0 implies no execute
+  p->alarm_tick = 0;
+  p->handler = 0;
+  p->ticks_passed = 0;
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
     freeproc(p);
