@@ -96,6 +96,7 @@ usertrap(void)
       if ((p->ticks_passed % p->alarm_tick == 0) && p->exec_fn)
       { // ticks_passed is ensured to be nonzero
         p->trapframe2 = *p->trapframe;
+        p->exec_fn = 0;
         p->trapframe->epc = (uint64)p->handler;
       }
     }

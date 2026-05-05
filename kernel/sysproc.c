@@ -116,8 +116,6 @@ sys_uptime(void)
 uint64
 sys_sigalarm(void)
 {
-  struct proc *p = myproc();
-  p->exec_fn = 0; // disallow calls to fn
   struct proc *m = myproc();
 
   int ticks;
