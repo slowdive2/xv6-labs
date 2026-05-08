@@ -68,6 +68,40 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  } else if(r_scause() == 15){ // write fault
+    pte_t *pte = walk(p->pagetable, PGROUNDDOWN(r_stval()), 0); 
+
+    if(pte == 0){
+      panic("usertrap: null pte");
+    }
+    
+    if((*pte & PTE_V) && !(*pte & PTE_W) && (*pte & PTE_COW)){ // cow 
+
+      // allocate a new page with kalloc(), copy the old page to the new page, and install the new page in the PTE with PTE_W set
+      
+      char *mem;
+      uint flags = PTE_FLAGS(*pte);
+      flags |= PTE_W; // W
+      flags &= ~PTE_COW; // !CoW
+      uint64 pa = PTE2PA(*pte);
+
+      if(refcnt[pa / PGSIZE] == 1){ // this is the only proc ref; ~W, ~CoW (not being shared by 2+ procs)
+        *pte = (*pte & ~0x1FF) | flags;
+        sfence_vma(); // ensure wrong (old) flags arent cached
+      }
+      else if(refcnt[pa / PGSIZE] < 1)
+          panic("cow: invalid refcount (<1)");
+      else{ 
+        if((mem = kalloc()) == 0)
+          panic("usertrap: kalloc");
+        memmove(mem, (char *)PTE2PA(*pte), PGSIZE); // map shared page into copy
+        *pte = PA2PTE((uint64)mem) | flags; // set pte to refer to memory copy
+        refcnt[pa / PGSIZE]--; 
+        sfence_vma();
+      }
+      // store refcount as arr[i = PA / 4096] , SZ = HIGHESTPA
+    }
+  
   } else if((r_scause() == 15 || r_scause() == 13) &&
             vmfault(p->pagetable, r_stval(), (r_scause() == 13)? 1 : 0) != 0) {
     // page fault on lazily-allocated page

@@ -299,7 +299,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
+  // char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -307,20 +307,22 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     if((*pte & PTE_V) == 0)
       continue;   // physical page hasn't been allocated
     pa = PTE2PA(*pte);
+    refcnt[pa / PGSIZE]++;
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
+    flags &= ~PTE_W;
+    flags |= PTE_COW;
+    /* if((mem = kalloc()) == 0)
       goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
-      goto err;
-    }
+      */
+    // memmove(mem, (char*)pa, PGSIZE);
+    *pte = PA2PTE(pa) | flags;
+    mappages(new, i, PGSIZE, pa, flags);
   }
   return 0;
 
- err:
+ /* err:
   uvmunmap(new, 0, i / PGSIZE, 1);
-  return -1;
+  return -1; */
 }
 
 // mark a PTE invalid for user access.
