@@ -93,6 +93,8 @@ e1000_init(uint32 *xregs)
 int
 e1000_transmit(char *buf, int len)
 {
+
+  // 
   //
   // Your code here.
   //
@@ -100,13 +102,34 @@ e1000_transmit(char *buf, int len)
   // the TX descriptor ring so that the e1000 sends it. Stash
   // a pointer so that it can be freed after send completes.
   //
+  // free if E1000_TXD_STAT_DD
+  if((tx_ring[regs[E1000_TDT]].status & (E1000_TXD_STAT_DD)) == 0) // full (STAT_DD not yet set by hw)
+    return -1;
+  if(tx_ring[regs[E1000_TDT]].addr != 0) // STAT_DD implies that this buffer has been used already - reuse it now
+    kfree((void *)tx_ring[regs[E1000_TDT]].addr);
+  tx_ring[regs[E1000_TDT]].addr = (uint64)buf;
+  tx_ring[regs[E1000_TDT]].length = len;
+  tx_ring[regs[E1000_TDT]].cmd |= (E1000_TXD_CMD_EOP);
+  tx_ring[regs[E1000_TDT]].cmd |= (E1000_TXD_CMD_RS);
+  regs[E1000_TDT] = (regs[E1000_TDT] + 1) % TX_RING_SIZE;
+  return 0;
+
+//   struct tx_desc
+// {
+//   uint64 addr;
+//   uint16 length;
+//   uint8 cso;
+//   uint8 cmd;
+//   uint8 status;
+//   uint8 css;
+//   uint16 special;
+// };
+
   // return 0 on success.
   // return -1 on failure (e.g., there is no descriptor available)
   // so that the caller knows to free buf.
   //
 
-  
-  return 0;
 }
 
 static void
@@ -118,7 +141,17 @@ e1000_recv(void)
   // Check for packets that have arrived from the e1000
   // Create and deliver a buf for each packet (using net_rx()).
   //
-
+  uint64 buf;
+  acquire(&e1000_lock);
+  struct rx_desc descriptor = rx_ring[(regs[E1000_RDT] + 1) % RX_RING_SIZE];
+  if(((descriptor.status & (E1000_RXD_STAT_DD)) != 0) || (buf = (uint64)kalloc() != 0)){ // receive descriptor not ready or out of space
+    net_rx((char *)descriptor.addr, descriptor.length);
+    descriptor.addr = buf;
+    descriptor.length = 0;
+    descriptor.status = 0; // reset status
+    regs[E1000_RDT] = (regs[E1000_RDT] + 1) % RX_RING_SIZE;
+  }
+  release(&e1000_lock);
 }
 
 void

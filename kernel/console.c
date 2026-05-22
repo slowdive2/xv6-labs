@@ -60,7 +60,8 @@ consolewrite(int user_src, uint64 src, int n)
 {
   char buf[32];
   int i = 0;
-
+// ensure that , at most , sizeof(buf[32]) is written at a time ,
+// else n>sizeof(buf[32]) write n
   while(i < n){
     int nn = sizeof(buf);
     if(nn > n - i)
@@ -145,7 +146,8 @@ consoleintr(int c)
   case C('P'):  // Print process list.
     procdump();
     break;
-  case C('U'):  // Kill line.
+  case C('U'):  // Kill line. Write backspaces 
+                // between the bounding newlines
     while(cons.e != cons.w &&
           cons.buf[(cons.e-1) % INPUT_BUF_SIZE] != '\n'){
       cons.e--;
@@ -160,7 +162,7 @@ consoleintr(int c)
     }
     break;
   default:
-    if(c != 0 && cons.e-cons.r < INPUT_BUF_SIZE){
+    if(c != 0 && cons.e-cons.r < INPUT_BUF_SIZE){ // e > w > r, so cons.e-cons.r is the unread buffer
       c = (c == '\r') ? '\n' : c;
 
       // echo back to the user.
