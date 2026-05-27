@@ -10,6 +10,8 @@
 #include "file.h"
 #include "net.h"
 
+#define MAX_PORTS 65536
+
 // xv6's ethernet and IP addresses
 static uint8 local_mac[ETHADDR_LEN] = { 0x52, 0x54, 0x00, 0x12, 0x34, 0x56 };
 static uint32 local_ip = MAKE_IP_ADDR(10, 0, 2, 15);
@@ -34,11 +36,20 @@ netinit(void)
 uint64
 sys_bind(void)
 {
-  //
-  // Your code here.
-  //
+  int dport;
+  argint(0, &dport);
+  struct chan *chan = &ports[dport];
+  acquire(&chan->lock);
 
-  return -1;
+  if (chan->set) // in use
+    return -1;
+  
+  chan->set = 1;
+  chan->r = 0;
+  chan->w = 0;
+
+  release(&chan->lock);
+  return 0;
 }
 
 //
@@ -69,15 +80,57 @@ sys_unbind(void)
 // and -1 if there was an error.
 //
 // dport, *src, and *sport are host byte order.
-// bind(dport) must previously have been called.
+// bind(dport) must previously have been called. (verified via ip_rx)
 //
 uint64
 sys_recv(void)
 {
   //
   // Your code here.
-  //
-  return -1;
+
+  // fetch args
+  struct proc *p = myproc();
+  int dport;
+  uint64 src;
+  uint64 sport;
+  uint64 bufaddr;
+  uint64 stat;
+  int maxlen;
+  uint w;
+  uint r;
+
+  argint(0, &dport);
+  argaddr(1, &src);
+  argaddr(2, &sport);
+  argaddr(3, &bufaddr);
+  argint(4, &maxlen);
+
+  // fetch earliest packet, else wait for one
+  struct chan *chan = &ports[dport];
+  acquire(&chan->lock);
+  w = chan->w;
+  r = chan->r;
+    // Sleep for packet
+  while(chan->r == chan->w){
+    if(killed(p)){
+      release(&chan->lock);
+      return -1;
+    }
+    sleep(&chan->r, &chan->lock);
+  }
+  char *pack = chan->packets[w].buffer;
+
+  uint64 size = sizeof(struct packet);
+
+  if((stat = copyout(p->pagetable, bufaddr, pack, size)) < 0){
+    kfree((void *)bufaddr);
+    release(&chan->lock);
+    return -1;
+  }
+  kfree(pack);
+  r = ((r + 1) % 16);
+  release(&chan->lock);
+  return stat;
 }
 
 // This code is lifted from FreeBSD's ping.c, and is copyright by the Regents
@@ -182,16 +235,39 @@ sys_send(void)
 void
 ip_rx(char *buf, int len)
 {
+  uint w;
   // don't delete this printf; make grade depends on it.
   static int seen_ip = 0;
   if(seen_ip == 0)
     printf("ip_rx: received an IP packet\n");
   seen_ip = 1;
-
-  //
   // Your code here.
-  //
-  
+  // type = ETHTYPE_IP
+  struct eth *eth = (struct eth *)buf;
+  struct ip *ip = (struct ip *)(eth + 1);
+  struct udp *udp = (struct udp *)(ip + 1);
+  int dport = ntohs(udp->dport);
+  struct chan *chan = &ports[dport];
+  // if this is a UDP packet, and the dport has a channel
+  if(ntohs(ip->ip_p) == IPPROTO_UDP){
+    acquire(&chan->lock);
+
+    w = chan->w;
+
+    if((chan->set) &&
+    (w < 16)
+    ){
+      chan->packets[w].buffer = buf;
+      chan->r = w;
+      wakeup(&chan->r);
+      release(&chan->lock);
+    }
+  }
+  // else drop packet; sys_recv() should kfree(buf) if above executes
+  else{
+  release(&chan->lock);
+  kfree(buf);
+  }
 }
 
 //
@@ -242,6 +318,7 @@ arp_rx(char *inbuf)
   kfree(inbuf);
 }
 
+// called via e1000_recv
 void
 net_rx(char *buf, int len)
 {
@@ -253,7 +330,7 @@ net_rx(char *buf, int len)
   } else if(len >= sizeof(struct eth) + sizeof(struct ip) &&
      ntohs(eth->type) == ETHTYPE_IP){
     ip_rx(buf, len);
-  } else {
+  } else { // empty
     kfree(buf);
   }
 }

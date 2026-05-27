@@ -2,6 +2,8 @@
 gtypedef unsigned long size_t;
 typedef long int off_t;
 #endif
+struct packet;
+struct chan;
 struct buf;
 struct context;
 struct file;

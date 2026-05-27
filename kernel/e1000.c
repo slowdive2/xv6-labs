@@ -103,7 +103,9 @@ e1000_transmit(char *buf, int len)
   // a pointer so that it can be freed after send completes.
   //
   // free if E1000_TXD_STAT_DD
-  if((tx_ring[regs[E1000_TDT]].status & (E1000_TXD_STAT_DD)) == 0) // full (STAT_DD not yet set by hw)
+  // called via arp_rx, sys_send
+  acquire(&e1000_lock);
+  if((tx_ring[regs[E1000_TDT]].status & (E1000_TXD_STAT_DD)) == 0) // return -1 if full (STAT_DD not yet set by hw)
     return -1;
   if(tx_ring[regs[E1000_TDT]].addr != 0) // STAT_DD implies that this buffer has been used already - reuse it now
     kfree((void *)tx_ring[regs[E1000_TDT]].addr);
@@ -111,7 +113,8 @@ e1000_transmit(char *buf, int len)
   tx_ring[regs[E1000_TDT]].length = len;
   tx_ring[regs[E1000_TDT]].cmd |= (E1000_TXD_CMD_EOP);
   tx_ring[regs[E1000_TDT]].cmd |= (E1000_TXD_CMD_RS);
-  regs[E1000_TDT] = (regs[E1000_TDT] + 1) % TX_RING_SIZE;
+  regs[E1000_TDT] = (regs[E1000_TDT] + 1) % TX_RING_SIZE; // next descriptor to write to 
+  release(&e1000_lock);
   return 0;
 
 //   struct tx_desc
@@ -140,6 +143,7 @@ e1000_recv(void)
   //
   // Check for packets that have arrived from the e1000
   // Create and deliver a buf for each packet (using net_rx()).
+  // note: called via interrupthandler
   //
   uint64 buf;
   acquire(&e1000_lock);
