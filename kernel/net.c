@@ -55,6 +55,7 @@ if((dport < 0) || (dport >= MAX_PORTS)){
 
   initlock(&chan->lock, "chan");
   ports[dport] = chan;
+  printf("bind: init lock for %d\n", dport);
   return 0;
 }
 
@@ -102,7 +103,6 @@ sys_recv(void)
   uint64 bufaddr;
   uint64 stat;
   int maxlen;
-  uint r;
 
   argint(0, &dport);
   argaddr(1, &src);
@@ -114,7 +114,6 @@ sys_recv(void)
   struct chan *chan = ports[dport];
   printf("sys_recv: aL(cL)\n");
   acquire(&chan->lock);
-  r = chan->r;
     // Sleep for packet
   while(chan->r == chan->w){
     if(killed(p)){
@@ -124,8 +123,8 @@ sys_recv(void)
     printf("sys_recv: sleep\n");
     sleep(&chan->r, &chan->lock);
   }
-  printf("sys_recv: woke up\n");
-  char *pack = chan->packets[r++ % MAX_PACKS]->buffer;
+  printf("sys_recv: woke up r: %d w: %d\n", chan->r, chan->w);
+  char *pack = chan->packets[chan->r++ % MAX_PACKS].buffer;
 
   uint64 size = sizeof(struct packet);
 
@@ -137,7 +136,6 @@ sys_recv(void)
   }
   printf("sys_recv: copied to user\n");
   kfree(pack);
-  r = ((r + 1) % 16);
   release(&chan->lock);
   printf("sys_recv: rL(cL)\n");
   return stat;
@@ -248,7 +246,6 @@ void
 ip_rx(char *buf, int len)
 {
   printf("ip_rx: entry\n");
-  uint w;
   // don't delete this printf; make grade depends on it.
   static int seen_ip = 0;
   if(seen_ip == 0)
@@ -260,31 +257,30 @@ ip_rx(char *buf, int len)
   struct ip *ip = (struct ip *)(eth + 1);
   struct udp *udp = (struct udp *)(ip + 1);
   int dport = ntohs(udp->dport);
-    printf("ip_rx: s: %d sp: %d d: %d dp:%d\n", ip->ip_src, udp->sport, ip->ip_dst, udp->dport);
   struct chan *chan = ports[dport];
+    printf("ip_rx: s: %d sp: %d d: %d dp:%d\n", ip->ip_src, udp->sport, ip->ip_dst, udp->dport);
+  if(chan == 0){
+    printf("ip_rx: unbound\n");
+    goto fail;
+  }
   // if this is a UDP packet, and the dport has a channel
-  if(ntohs(ip->ip_p) == IPPROTO_UDP){
+  if(ip->ip_p == IPPROTO_UDP){
     printf("ip_rx: recvd udp\n");
     printf("ip_rx: aL(cl)\n");
     acquire(&chan->lock);
 
-    w = chan->w;
 
-    if((chan) &&
-    (w < 16)
-    ){
-      w = chan->w;
-      chan->packets[w]->buffer = buf;
-      chan->r = w;
+    if(chan->w < 16)
+    {
+      chan->packets[chan->w++ % MAX_PACKS].buffer = buf;
       printf("ip_rx: wake(cR), rL(cl)\n");
       wakeup(&chan->r);
       release(&chan->lock);
     }
   }
   // else drop packet; sys_recv() should kfree(buf) if above executes
-  else{
+  fail:
   kfree(buf);
-  }
 }
 
 //

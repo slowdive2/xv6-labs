@@ -130,14 +130,14 @@ struct dns_data {
 // 16 buffers per port
 struct packet {
   char *buffer;
-  int *len[16];
+  int len;
 };
-// chan->packets[w]->buffer
+// chan->packets[w].buffer
 
 #define MAX_PACKS 16
 struct chan {
   struct spinlock lock;
-  struct packet *packets[MAX_PACKS];
+  struct packet packets[MAX_PACKS];
   uint r; // index of packet to be read
   uint w; // idx of packets written
 };
