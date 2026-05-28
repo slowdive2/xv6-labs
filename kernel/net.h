@@ -132,16 +132,15 @@ struct packet {
   char *buffer;
   int *len[16];
 };
-// chan->packets[w].buffer
+// chan->packets[w]->buffer
 
 #define MAX_PACKS 16
 struct chan {
   struct spinlock lock;
-  uint set;
-  struct packet packets[MAX_PACKS];
+  struct packet *packets[MAX_PACKS];
   uint r; // index of packet to be read
   uint w; // idx of packets written
 };
 
 #define MAX_PORTS 65536
-struct chan ports[MAX_PORTS];
+struct chan *ports[MAX_PORTS];
