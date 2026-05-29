@@ -124,21 +124,43 @@ sys_recv(void)
     sleep(&chan->r, &chan->lock);
   }
   printf("sys_recv: woke up r: %d w: %d\n", chan->r, chan->w);
-  char *pack = chan->packets[chan->r++ % MAX_PACKS].buffer;
+  char *pack = chan->packets[chan->r % MAX_PACKS].buffer;
+  chan->packets[chan->r % MAX_PACKS].buffer = 0;
+  chan->r++;
 
-  uint64 size = sizeof(struct packet);
+  struct eth *eth = (struct eth *)pack;
+  struct ip *ip = (struct ip *)(eth + 1);
+  struct udp *udp = (struct udp *)(ip + 1);
 
-  if((stat = copyout(p->pagetable, bufaddr, pack, size)) < 0){
-    printf("net.c copyout err");
-    kfree((void *)bufaddr);
-    release(&chan->lock);
-    return -1;
-  }
-  printf("sys_recv: copied to user\n");
-  kfree(pack);
+
+  int p_dport = ntohs(udp->dport);
+  short p_sport = ntohs(udp->sport);
+  int p_shost = ntohl(ip->ip_src);
+  char *p_buf = (char *)(udp + 1);
+  int p_len = ntohs(udp->ulen) - sizeof(struct udp);
+  
   release(&chan->lock);
+
+  if(p_len > maxlen)
+    p_len = maxlen;
+  // udp->ulen = htons(len + sizeof(struct udp));
+  // ip->ip_len = htons(sizeof(struct ip) + sizeof(struct udp) + len);
+  // if(copyout(p->pagetable, dport, (char *)&p_dport, sizeof(int)) < 0)
+  //   goto fail;
+  if(copyout(p->pagetable, src, (char *)&p_shost, sizeof(p_shost)) < 0)
+    goto fail;
+  if(copyout(p->pagetable, sport, (char *)&p_sport, sizeof(p_sport)) < 0)
+    goto fail;
+  if(copyout(p->pagetable, bufaddr, p_buf, p_len) < 0)
+    goto fail;
+  kfree(pack);
   printf("sys_recv: rL(cL)\n");
-  return stat;
+  return p_len;
+
+  fail:
+  printf("sys_recv copyout fail: rL(cL)\n");
+  kfree(pack);
+  return -1;
 }
 
 // This code is lifted from FreeBSD's ping.c, and is copyright by the Regents
