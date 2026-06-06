@@ -28,7 +28,6 @@ struct kmem kmem[NCPU];
 void
 kinit()
 {
-  struct *kmem[NCPU];
   for(int i = 0; i < NCPU; i++)
     initlock(&kmem[i].lock, "kmem");
 
@@ -41,6 +40,8 @@ void
 freerange(void *pa_start, void *pa_end)
 {
   // TODO : give all free mem to cpu
+  // Hypothesis : kfree() is called within context of CPU, therefore we don't need to touch freerange()
+  
   char *p;
   p = (char*)PGROUNDUP((uint64)pa_start);
   for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
@@ -59,8 +60,10 @@ kfree(void *pa)
   //        prepend free *pa to corresponding list
 
   struct run *r;
+  int id;
+
   push_off();
-  int id = cpuid();
+  id = cpuid();
   pop_off();
 
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
@@ -83,20 +86,33 @@ void *
 kalloc(void)
 {
   struct run *r;
+  int id;
+
   push_off();
-  int id = cpuid();
+  id = cpuid();
   pop_off();
 
   acquire(&kmem[id].lock);
   r = kmem[id].freelist;
-  check_valid:
+
   if(r)
     kmem[id].freelist = r->next;
   else{
     // steal
+    for(int i = 0; i < NCPU; i++){
+
+      acquire(&kmem[i].lock);
+      r = kmem[i].freelist;
+
+      if(r){
+        kmem[i].freelist = r->next;
+        release(&kmem[i].lock); 
+        break;
+      }
+      release(&kmem[i].lock); 
+    }
   }
   release(&kmem[id].lock);
-
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
