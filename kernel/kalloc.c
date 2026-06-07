@@ -146,9 +146,25 @@ kalloc(void)
 
       acquire(&kmem[i].lock);
       r = kmem[i].freelist;
-
+      
       if(r){
-        kmem[i].freelist = r->next;
+        int j = 0;
+        while(r->next){
+          j++;
+          r = r->next;
+        }
+
+        j /= 2;
+        r = kmem[i].freelist;
+        acquire(&kmem[id].lock)
+        for(int k = 0; k < j; k++){ // get to the middle node 
+          struct run *g = r->next;
+          r->next = kmem[id].freelist;
+          r = g;
+        }
+        release(&kmem[id].lock);
+        r->next = kmem[i].freelist;
+
         release(&kmem[i].lock);
         break;
       }
@@ -159,3 +175,12 @@ kalloc(void)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
 }
+
+
+// problem: only one free list, so each CPU has to wait for it to be free when calling kalloc()
+// solution : give each CPU its own list of freemem at kernel init - evenly distributed initially
+
+// problem 2 : CPUs relinquish their lists at different speeds, therefore:
+// they attempt to steal another CPUs element from their free list
+// thus, CPUs 0-3 are checked most frequently by the CPUs attempting to steal, which means:
+// CPUs 4-8 rarely get used as backup memory by other CPUs
