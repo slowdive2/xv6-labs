@@ -10,7 +10,8 @@
 #include "defs.h"
 #include <stdint.h>
 
-void freerange(void *pa_start, void *pa_end);
+void freerange(void *pa_start, void *pa_end, int id);
+void cpu_kfree(void *pa, int id);
 
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
@@ -132,24 +133,28 @@ kalloc(void)
   acquire(&kmem[id].lock);
   r = kmem[id].freelist;
 
-  if(r)
+  if(r){
     kmem[id].freelist = r->next;
+    release(&kmem[id].lock); 
+  }
   else{
     // steal
+    release(&kmem[id].lock);
     for(int i = 0; i < NCPU; i++){
+      if(i == id)
+        continue;
 
       acquire(&kmem[i].lock);
       r = kmem[i].freelist;
 
       if(r){
         kmem[i].freelist = r->next;
-        release(&kmem[i].lock); 
+        release(&kmem[i].lock);
         break;
       }
-      release(&kmem[i].lock); 
+      release(&kmem[i].lock);
     }
   }
-  release(&kmem[id].lock);
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
