@@ -23,6 +23,7 @@ struct run {
 struct kmem {
   struct spinlock lock;
   struct run *freelist;
+  uint64 count;
 };
 
 struct kmem kmem[NCPU];
@@ -41,7 +42,7 @@ kinit()
         char *rng_start = start + i * chunk; // todo : better naming convention
         char *rng_end = (i == NCPU - 1)
                ? (char*)PHYSTOP
-               : start + (i + 1) * chunk;
+               : start + (i + 1) * chunk; // messy ternary stuff so that i dont round PHYSTOP down by accident
 
         freerange(rng_start, rng_end, i);
     }
@@ -87,15 +88,13 @@ cpu_kfree(void *pa, int id)
   acquire(&kmem[id].lock);
   r->next = kmem[id].freelist;
   kmem[id].freelist = r;
+  kmem[id].count++;
   release(&kmem[id].lock);
 }
 
 void
 kfree(void *pa)
 {
-
-  // TODO : determine which cpu is calling (push_off, pop_off)
-  //        prepend free *pa to corresponding list
 
   struct run *r;
   int id;
@@ -114,66 +113,74 @@ kfree(void *pa)
   acquire(&kmem[id].lock);
   r->next = kmem[id].freelist;
   kmem[id].freelist = r;
+  kmem[id].count++;   
   release(&kmem[id].lock);
 }
 
 // Allocate one 4096-byte page of physical memory.
 // Returns a pointer that the kernel can use.
 // Returns 0 if the memory cannot be allocated.
+
+int
+steal_memlist(int id){ 
+  struct run *r;
+  struct run *z;
+  acquire(&kmem[id].lock);
+  for(int i = 0; i < NCPU; i++){
+    int j = (id + i + 1) % NCPU; // randomness
+      if(j == id)
+        continue;
+
+      acquire(&kmem[j].lock);
+      if(kmem[j].count > 1){
+        uint64 stln = kmem[j].count;
+        r = kmem[j].freelist;
+        for(int k = 0; k < ((kmem[j].count / 2) - 1); k++){ // get middle node
+          r = r->next; 
+        }
+        z = kmem[id].freelist;
+        kmem[id].freelist = kmem[j].freelist;
+        kmem[j].freelist = r->next; // freelist now points to middle node + 1
+        r->next = z;
+        kmem[id].count += stln / 2;
+        kmem[j].count -= stln / 2;
+        release(&kmem[j].lock);
+        return 1;
+      }
+      release(&kmem[j].lock);
+    }
+    return 0;
+}
+
 void *
 kalloc(void)
 {
-  struct run *r;
   int id;
+  int stolen = 1;
+  struct run *r;
 
   push_off();
   id = cpuid();
   pop_off();
 
   acquire(&kmem[id].lock);
-  r = kmem[id].freelist;
-
-  if(r){
-    kmem[id].freelist = r->next;
-    release(&kmem[id].lock); 
-  }
-  else{
-    // steal
-    release(&kmem[id].lock);
-    for(int i = 0; i < NCPU; i++){
-      if(i == id)
-        continue;
-
-      acquire(&kmem[i].lock);
-      r = kmem[i].freelist;
-      
-      if(r){
-        int j = 0;
-        while(r->next){
-          j++;
-          r = r->next;
-        }
-
-        j /= 2;
-        r = kmem[i].freelist;
-        acquire(&kmem[id].lock)
-        for(int k = 0; k < j; k++){ // get to the middle node 
-          struct run *g = r->next;
-          r->next = kmem[id].freelist;
-          r = g;
-        }
-        release(&kmem[id].lock);
-        r->next = kmem[i].freelist;
-
-        release(&kmem[i].lock);
-        break;
-      }
-      release(&kmem[i].lock);
+  
+    if(!kmem[id].freelist){
+      release(&kmem[id].lock);
+      stolen = steal_memlist(id);
+      acquire(&kmem[id].lock);
     }
-  }
+    if(stolen){
+      r = kmem[id].freelist;
+      kmem[id].freelist = r->next;
+      kmem[id].count--;
+      release(&kmem[id].lock); 
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
+    }
+    else
+    return 0;
 }
 
 
