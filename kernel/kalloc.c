@@ -121,42 +121,56 @@ kfree(void *pa)
 // Returns a pointer that the kernel can use.
 // Returns 0 if the memory cannot be allocated.
 
-int
-steal_memlist(int id){ 
-  struct run *r;
-  struct run *z;
-  acquire(&kmem[id].lock);
-  for(int i = 0; i < NCPU; i++){
-    int j = (id + i + 1) % NCPU; // randomness
-      if(j == id)
-        continue;
+void 
+steal_memlist(int id)
+{
+  struct run *r, *z;
 
+  for(int i = 0; i < NCPU; i++){
+    int j = (id + i + 1) % NCPU;
+    if(j == id)
+      continue;
+
+    if(id < j){
+      acquire(&kmem[id].lock);
       acquire(&kmem[j].lock);
-      if(kmem[j].count > 1){
-        uint64 stln = kmem[j].count;
-        r = kmem[j].freelist;
-        for(int k = 0; k < ((kmem[j].count / 2) - 1); k++){ // get middle node
-          r = r->next; 
-        }
-        z = kmem[id].freelist;
-        kmem[id].freelist = kmem[j].freelist;
-        kmem[j].freelist = r->next; // freelist now points to middle node + 1
-        r->next = z;
-        kmem[id].count += stln / 2;
-        kmem[j].count -= stln / 2;
-        release(&kmem[j].lock);
-        return 1;
-      }
-      release(&kmem[j].lock);
+    } else {
+      acquire(&kmem[j].lock);
+      acquire(&kmem[id].lock);
     }
-    return 0;
+
+    if(kmem[j].count > 1){
+      uint64 stln = kmem[j].count;
+
+      r = kmem[j].freelist;
+      for(int k = 0; k < (stln / 2 - 1); k++)
+        r = r->next;
+
+      z = kmem[id].freelist;
+
+      kmem[id].freelist = kmem[j].freelist;
+      kmem[j].freelist = r->next;
+
+      r->next = z;
+
+      kmem[id].count += stln / 2;
+      kmem[j].count -= stln / 2;
+
+      release(&kmem[id].lock);
+      release(&kmem[j].lock);
+
+    }
+
+    release(&kmem[id].lock);
+    release(&kmem[j].lock);
+  }
+
 }
 
 void *
 kalloc(void)
 {
   int id;
-  int stolen = 1;
   struct run *r;
 
   push_off();
@@ -164,23 +178,28 @@ kalloc(void)
   pop_off();
 
   acquire(&kmem[id].lock);
-  
-    if(!kmem[id].freelist){
-      release(&kmem[id].lock);
-      stolen = steal_memlist(id);
-      acquire(&kmem[id].lock);
-    }
-    if(stolen){
-      r = kmem[id].freelist;
-      kmem[id].freelist = r->next;
-      kmem[id].count--;
-      release(&kmem[id].lock); 
-  if(r)
-    memset((char*)r, 5, PGSIZE); // fill with junk
-  return (void*)r;
-    }
-    else
-    return 0;
+
+  if(!kmem[id].freelist){
+    release(&kmem[id].lock);
+
+    steal_memlist(id);
+
+    acquire(&kmem[id].lock);
+  }
+
+  if(kmem[id].freelist){
+    r = kmem[id].freelist;
+    kmem[id].freelist = r->next;
+    kmem[id].count--;
+
+    release(&kmem[id].lock);
+
+    memset((char*)r, 5, PGSIZE);
+    return (void*)r;
+  }
+
+  release(&kmem[id].lock);
+  return 0;
 }
 
 
