@@ -505,6 +505,22 @@ sys_pipe(void)
 }
 
 
+int vma_alloc(int n) { // effectively just sbrk
+  uint64 addr = myproc()->sz;
+
+  if(n < 0){
+    if(growproc(n) < 0) {
+      return -1;
+    }
+  }
+
+  if(addr + n < addr)
+    return -1;
+
+  myproc()->sz += n;
+  return addr;
+}
+
 // struct vma {
 //     int valid;          // In use ?
 //     uint64 addr;        // Starting VA
@@ -571,26 +587,24 @@ uint64
 sys_mmap(void)
 {
   struct file *f;
-  void *addr, *taddr;
   int free_idx, len, prot, flags, fd, offset;
   struct vma *vma;
   struct proc *p;
-  // params
-  // argaddr(0, &taddr); // taddr will always be 0 in tests
-  taddr = 0;
+
   argint(1, &len);
   argint(2, &prot);
   argint(3, &flags);
   argint(4, &fd);
   argint(5, &offset);
-  // 
 
   p = myproc();
-  if(f = p->ofile[fd]) {
-    vma->f = filedup(f);
+
+  if(!(prot & PROT_READ || prot & PROT_WRITE)) { // 2 possible prots
+    return -1;
   }
-  else {
-    return -1; // invalid fd
+
+  if(!(flags & MAP_SHARED || flags & MAP_PRIVATE)) { // 2 possible flags
+    return -1;
   }
 
   // have we allocated 16 VMAs ?
@@ -602,16 +616,28 @@ sys_mmap(void)
     }
   }
   if(free_idx == -1) {
-    panic("mmap: no free vma");
+    panic("mmap: no free vma"); // should probably be an error instead
     return -1;
   }
 
-  vma = p->vmas[free_idx];
-  vma->valid = 1;
-  // vma->addr = find_free_region()l
+  // can call sbrk() for this, but that's a userspace fn
+  vma = &p->vmas[free_idx];
+  if(fd < 0 || fd >= NOFILE || !(f = p->ofile[fd]))
+    return -1;
+
+  if(offset > f->ip->size  || len > f->ip->size - offset )
+    return -1;
+
+  len = PGROUNDUP(len);
+  if(!(vma->addr = vma_alloc(len)))
+    return -1;
+
+  vma->f = filedup(f);
   vma->len = len;
   vma->prot = prot;
   vma->flags = flags;
+  vma->valid = 1;
+  return vma->addr;
 }
 
 uint64

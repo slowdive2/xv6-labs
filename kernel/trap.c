@@ -68,9 +68,55 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else if((r_scause() == 15 || r_scause() == 13) &&
-            vmfault(p->pagetable, r_stval(), (r_scause() == 13)? 1 : 0) != 0) {
-    // page fault on lazily-allocated page
+  } else if (r_scause() == 13 || r_scause() == 15) {
+    uint64 va = PGROUNDDOWN(r_stval());
+
+    for (int i = 0; i < MAX_VMA; i++) {
+      struct vma *vma = &p->vmas[i];
+
+      if (vma->valid &&
+          va >= vma->addr &&
+          va < vma->addr + vma->len) {
+
+        if (ismapped(p->pagetable, va))
+          panic("usertrap: mmap vma faulted on already mapped page");
+
+        pte_t *pte = walk(p->pagetable, va, 0);
+
+        if (pte == 0)
+          panic("usertrap: stval points to 0");
+
+        if (!(*pte & PTE_V)) {
+          uint64 i_off = (va - vma->addr) + vma->offset;
+          uint64 mem;
+
+          if ((mem = (uint64)kalloc()) == 0)
+            panic("usertrap: out of memory for vma");
+
+          ilock(vma->f->ip);
+
+          if (PGSIZE > (vma->f->ip->size - i_off))
+            memset((void *)mem, 0, PGSIZE);
+
+          // Read into kernel memory, then map into userspace.
+          readi(vma->f->ip, 0, mem, i_off, PGSIZE);
+
+          iunlock(vma->f->ip);
+
+          if(mappages(p->pagetable, va, PGSIZE, mem, vma->prot) < 0) {
+            panic("usertrap: mmap mappages");
+          }
+          break;
+        }
+        else
+          panic("usertrap: faulted on valid vma page");
+      }
+    }
+
+    if (vmfault(p->pagetable, r_stval(),
+                (r_scause() == 13) ? 1 : 0) != 0) {
+      // page fault on lazily-allocatead page
+    }
   } else {
     printf("usertrap(): unexpected scause 0x%lx pid=%d\n", r_scause(), p->pid);
     printf("            sepc=0x%lx stval=0x%lx\n", r_sepc(), r_stval());
