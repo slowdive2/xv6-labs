@@ -525,7 +525,7 @@ static int protm(struct vma *vma){
 //            int fd, off_t offset);
 
 /*
-given fd, fetch inode:
+given fd, fetch inode: (f=myproc()->ofile[fd])
 read inode length ; if len > inode length , len = inode length
 
 start addr + len is our vma region
@@ -539,6 +539,7 @@ for each page in vma, set to NOACCESS , fault handler should deal w/ this
 uint64
 sys_mmap(void)
 {
+  struct file *f;
   void *addr, *taddr;
   int free_idx, len, prot, flags, fd, offset;
   struct vma *vma;
@@ -554,7 +555,8 @@ sys_mmap(void)
   // 
 
   p = myproc();
-  
+  p->ofile
+
   if((addr = kalloc()) == 0)
     return -1;
 
@@ -573,6 +575,9 @@ sys_mmap(void)
   vma = p->vmas[free_idx];
   vma->valid = 1;
   vma->addr = (uint64)addr;
+  vma->len = len;
+  vma->prot = prot;
+  vma->flags = flags;
 
 }
 
