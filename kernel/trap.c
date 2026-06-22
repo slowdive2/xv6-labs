@@ -87,15 +87,24 @@ usertrap(void)
 
       if ((mem = (uint64)kalloc()) == 0)
         panic("usertrap: out of memory for vma");
-
+      
+      begin_op();
       ilock(vma->f->ip);
 
-      if (PGSIZE > (vma->f->ip->size - i_off))
-        memset((void *)mem, 0, PGSIZE);
+      uint64 n = 0;
 
-      readi(vma->f->ip, 0, mem, i_off, PGSIZE);
+      memset((void *)mem, 0, PGSIZE);
 
+      if(i_off < vma->f->ip->size){
+        n = vma->f->ip->size - i_off;
+        if(n > PGSIZE)
+          n = PGSIZE;
+
+        if(readi(vma->f->ip, 0, mem, i_off, n) != n)
+          panic("mmap readi");
+      }
       iunlock(vma->f->ip);
+      end_op();
 
       int prot = 0;
       if (vma->prot & PROT_READ)  prot |= PTE_R;

@@ -505,11 +505,12 @@ sys_pipe(void)
 }
 
 
-int vma_alloc(int n) { // effectively just sbrk
+int vma_alloc(int n) { // effectively just sbrk; n is gauranteed to be page-aligned by caller (sys_mmap calls PGROUNDUP(n))
   uint64 addr = myproc()->sz;
 
   if(n < 0){
-    if(growproc(n) < 0) {
+    if(growproc(n) != n) {
+      panic("vma_alloc: len != n");
       return -1;
     }
   }
