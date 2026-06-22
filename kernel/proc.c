@@ -696,6 +696,7 @@ fetch_vma(uint64 va){
       if (vma->valid &&
           va >= vma->addr &&
           va < vma->addr + vma->len) {
+            printf("fetch_vma returning %d\n", i);
         return vma;
       }
     }

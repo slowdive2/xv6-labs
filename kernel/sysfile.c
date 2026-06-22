@@ -601,13 +601,8 @@ sys_mmap(void)
 
   p = myproc();
 
-  if(!(prot & PROT_READ || prot & PROT_WRITE)) { // 2 possible prots
-    printf("no prot\n");
-    return -1;
-  }
-
-  if(!(flags & MAP_SHARED || flags & MAP_PRIVATE)) { // 2 possible flags
-    printf("no flag\n");
+  if(!(flags & (MAP_SHARED | MAP_PRIVATE))) { // 2 possible flags
+    panic("mmap: no flag\n");
     return -1;
   }
 
@@ -626,17 +621,31 @@ sys_mmap(void)
 
   // can call sbrk() for this, but that's a userspace fn
   vma = &p->vmas[free_idx];
-  if(fd < 0 || fd >= NOFILE || !(f = p->ofile[fd]))
+  if(fd < 0 || fd >= NOFILE || !(f = p->ofile[fd])){
+    panic("mmap: fd");
     return -1;
-
-  if(offset > f->ip->size  /*|| len > f->ip->size - offset*/)
+  }
+  if(offset > f->ip->size  /*|| len > f->ip->size - offset*/){
+    panic("mmap: offset");
     return -1;
-
+  }
   len = PGROUNDUP(len);
-  if(!(vma->addr = vma_alloc(len)))
+  if(!(vma->addr = vma_alloc(len))){
+    panic("mmap: vma_alloc");
+    return -1;
+  }
+  if(!(prot & (PROT_READ | PROT_WRITE))) { // 2 possible prots
+    panic("mmap: no prot\n");
+    return -1;
+  }
+  if ((prot & PROT_READ) && !f->readable)
+    return -1;
+
+  if ((prot & PROT_WRITE) && (flags & MAP_SHARED) && !f->writable)
     return -1;
 
   vma->f = filedup(f);
+  vma->offset = offset;
   vma->len = len;
   vma->prot = prot;
   vma->flags = flags;
@@ -650,7 +659,7 @@ sys_munmap(void)
 {
   struct proc *p = myproc();
   struct vma *vma;
-  uint64 va, pa;
+  uint64 va, pa, addr;
   int len;
   argaddr(0, &va);
   argint(1, &len);
@@ -659,22 +668,35 @@ sys_munmap(void)
   if((vma = fetch_vma(va)) == 0)
     return -1;
 
+  addr = va;
   for(int i = 0; i < npages; i++){
-
-    if(*walk(p->pagetable, va, 0) & PTE_V){ // faulted on - either og contents or modified
-      if(vma->flags | MAP_SHARED){
-        uint64 i_off = (va - vma->addr) + vma->offset;
-        pa = walkaddr(p->pagetable, va);
+    pte_t *pte = walk(p->pagetable, addr, 0);
+    printf("%d\n", (*pte & PTE_V) != 0);
+    if(*pte & PTE_V){ // faulted on - either og contents or modified
+      if(vma->flags & MAP_SHARED /*&& (*pte & PTE_W)*/) {
+        uint64 i_off = (addr - vma->addr) + vma->offset;
+        printf("i_off: %d\n", (int)i_off);
+        pa = walkaddr(p->pagetable, addr);
+        uint n = 0;
         begin_op();
         ilock(vma->f->ip);
-        writei(vma->f->ip, 0, pa, i_off, PGSIZE);
+
+        if(i_off < vma->f->ip->size){
+        n = vma->f->ip->size - i_off;
+        if(n > PGSIZE)
+          n = PGSIZE;
+        writei(vma->f->ip, 0, pa, i_off, n);
+        }
+
         iunlock(vma->f->ip);
         end_op();
+
+        printf("munmap: wrote back page %d out of %d pages\n", i, npages);
       }
     }
 
-    uvmunmap(p->pagetable, va, PGSIZE, 1);
-    va += PGSIZE;
+    uvmunmap(p->pagetable, addr, 1, 1);
+    addr += PGSIZE;
 
   }
 
@@ -682,7 +704,6 @@ sys_munmap(void)
     vma->addr += len;
 
   vma->len -= len;
-  vma->offset -= len;
   if(vma->len == 0){
     fileclose(vma->f);
     vma->addr = 0;

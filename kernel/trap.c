@@ -121,7 +121,7 @@ usertrap(void)
     }
 
     if(!is_vma) {
-      printf("vmfault");
+      printf("vmfault occurred\n");
 
       if(vmfault(p->pagetable, r_stval(),
                 (r_scause() == 13) ? 1 : 0) != 0){
