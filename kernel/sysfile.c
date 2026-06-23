@@ -644,11 +644,13 @@ sys_mmap(void)
   if ((prot & PROT_WRITE) && (flags & MAP_SHARED) && !f->writable)
     return -1;
 
+  printf("mmap: filedup\n");
   vma->f = filedup(f);
   vma->offset = offset;
   vma->len = len;
   vma->prot = prot;
   vma->flags = flags;
+  vma->child_vma = 0;
   vma->valid = 1;
   printf("mmap done for [%d]\n", free_idx);
   return vma->addr;
@@ -659,51 +661,82 @@ sys_munmap(void)
 {
   struct proc *p = myproc();
   struct vma *vma;
-  uint64 va, pa, addr;
+  uint64 va, addr, pa;
   int len;
+
   argaddr(0, &va);
   argint(1, &len);
+
   int npages = len / PGSIZE;
 
   if((vma = fetch_vma(va)) == 0)
     return -1;
 
+  if(vma->child_vma)
+    return 0;
+
   addr = va;
+
   for(int i = 0; i < npages; i++){
     pte_t *pte = walk(p->pagetable, addr, 0);
+
+    if(pte == 0){
+      printf("munmap pte 0\n");
+      addr += PGSIZE;
+      continue;
+    }
+
     printf("%d\n", (*pte & PTE_V) != 0);
-    if(*pte & PTE_V){ // faulted on - either og contents or modified
-      if(vma->flags & MAP_SHARED /*&& (*pte & PTE_W)*/) {
-        uint64 i_off = (addr - vma->addr) + vma->offset;
-        printf("i_off: %d\n", (int)i_off);
-        pa = walkaddr(p->pagetable, addr);
-        uint n = 0;
+    printf("munmap iteration %d: addr = %p, pte = %p\n",
+           i, (void *)addr, (void *)pte);
+
+    if(!(*pte & PTE_V)){
+      uvmunmap(p->pagetable, addr, 1, 1);
+      addr += PGSIZE;
+      continue;
+    }
+
+    if(!(vma->child_vma) && vma->flags & MAP_SHARED /*&& (*pte & PTE_W)*/){
+      uint64 i_off = (addr - vma->addr) + vma->offset;
+
+      printf("i_off: %d\n", (int)i_off);
+
+      pa = PTE2PA(*pte);
+
+      if(pa == 0){
+        uvmunmap(p->pagetable, addr, 1, 1);
+        addr += PGSIZE;
+        continue;
+      }
+
+      if(i_off < vma->f->ip->size){
+        uint n = vma->f->ip->size - i_off;
+        if(n > PGSIZE)
+          n = PGSIZE;
+
         begin_op();
         ilock(vma->f->ip);
 
-        if(i_off < vma->f->ip->size){
-        n = vma->f->ip->size - i_off;
-        if(n > PGSIZE)
-          n = PGSIZE;
-        writei(vma->f->ip, 0, pa, i_off, n);
-        }
+        if(writei(vma->f->ip, 0, pa, i_off, n) != n)
+          panic("munmap: writei");
 
         iunlock(vma->f->ip);
         end_op();
-
-        printf("munmap: wrote back page %d out of %d pages\n", i, npages);
       }
+
+      printf("munmap: wrote back page %d out of %d pages\n",
+             i + 1, npages);
     }
 
     uvmunmap(p->pagetable, addr, 1, 1);
     addr += PGSIZE;
-
   }
 
   if(va == vma->addr)
     vma->addr += len;
 
   vma->len -= len;
+
   if(vma->len == 0){
     fileclose(vma->f);
     vma->addr = 0;

@@ -89,6 +89,8 @@ struct vma {
     int flags;          // MAP_SHARED | MAP_PRIVATE
     int offset;         // (should be 0)
     struct file *f;     // pointer to the mapped file
+
+    int child_vma;
 };
 // Per-process state
 struct proc {

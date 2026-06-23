@@ -5,6 +5,9 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "sleeplock.h"
+#include "file.h"
+#include "fcntl.h"
 
 struct cpu cpus[NCPU];
 
@@ -259,7 +262,7 @@ kfork(void)
   int i, pid;
   struct proc *np;
   struct proc *p = myproc();
-
+  struct vma *pvma, *npvma;
   // Allocate process.
   if((np = allocproc()) == 0){
     return -1;
@@ -284,6 +287,24 @@ kfork(void)
     if(p->ofile[i])
       np->ofile[i] = filedup(p->ofile[i]);
   np->cwd = idup(p->cwd);
+
+  for(i = 0; i < MAX_VMA; i++) {
+    if(!p->vmas[i].valid)
+      continue;
+
+    pvma = &p->vmas[i];
+    npvma = &np->vmas[i];
+
+    npvma->addr = pvma->addr;
+    npvma->len = pvma->len;
+    npvma->prot = pvma->prot;
+    npvma->flags = pvma->flags;
+    npvma->offset = pvma->offset;
+    printf("kfork: filedup\n");
+    npvma->f = filedup(pvma->f);
+    npvma->child_vma = 1;
+    npvma->valid = 1;
+  }
 
   safestrcpy(np->name, p->name, sizeof(p->name));
 
@@ -324,9 +345,58 @@ void
 kexit(int status)
 {
   struct proc *p = myproc();
-
+  struct vma *vma;
+  
   if(p == initproc)
     panic("init exiting");
+
+
+  for(int vi = 0; vi < MAX_VMA; vi++){
+  if(!p->vmas[vi].valid || p->vmas[vi].child_vma)
+    continue;
+
+  vma = &p->vmas[vi];
+
+  int npages = vma->len / PGSIZE;
+  uint64 addr = vma->addr;
+
+  for(int i = 0; i < npages; i++){
+    pte_t *pte = walk(p->pagetable, addr, 0);
+
+    if(pte && (*pte & PTE_V)){
+      if((vma->flags & MAP_SHARED) && (!vma->child_vma)){
+        uint64 i_off = (addr - vma->addr) + vma->offset;
+
+        uint64 pa = PTE2PA(*pte);
+        uint n = 0;
+
+        begin_op();
+        ilock(vma->f->ip);
+
+        if(i_off < vma->f->ip->size){
+          n = vma->f->ip->size - i_off;
+          if(n > PGSIZE)
+            n = PGSIZE;
+
+          if(writei(vma->f->ip, 0, pa, i_off, n) != n)
+            panic("kexit munmap: writei");
+        }
+
+        iunlock(vma->f->ip);
+        end_op();
+
+        printf("kexit: munmap wrote back shared pg successfully\n");
+      }
+    }
+
+    uvmunmap(p->pagetable, addr, 1, 1);
+    addr += PGSIZE;
+  }
+
+  vma->len = 0;
+  vma->addr = 0;
+  vma->valid = 0;
+}  
 
   // Close all open files.
   for(int fd = 0; fd < NOFILE; fd++){
@@ -337,6 +407,7 @@ kexit(int status)
     }
   }
 
+  
   begin_op();
   iput(p->cwd);
   end_op();
@@ -696,7 +767,6 @@ fetch_vma(uint64 va){
       if (vma->valid &&
           va >= vma->addr &&
           va < vma->addr + vma->len) {
-            printf("fetch_vma returning %d\n", i);
         return vma;
       }
     }
