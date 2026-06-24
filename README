@@ -1,13 +1,33 @@
-DISCLAIMER: Most of the labs were completed on different github identities of mine
-(I had no idea that .name , .email mattered!)
-"a a", "shells1233" are my own identities
-Mmap and part of the FS lab were finally done on this account
+## Kernel Modules Implemented
+### mmap
+Implemented memory-mapped files in xv6 through the implementation of per-process virtual memory areas (VMAs). mmap is able to reserve address space through VMA semantics and to associate the regions with specific files. 
+This inherently required a restructuring of the xv6 page fault handler. In favor of efficiency, physical memory population and page allocation is deferred to access time, as opposed to an immediate population of the VMA. 
+Implemented munmap() to remove mappings, flush modified pages back to disk for MAP_SHARED, and release associated resources.
+Adherence to exit() semantics is followed: on process exit, VMAs are cleanly uninstalled from the process's address space and memory. 
+fork() maintains transparent ownership between parent and child processes, with direct copies being installed into the child process during fork time. MAP_SHARED file edits are deferred until the parent process removes the corresponding VMA mappings (either through exit() or munmap()).
 
-Original description below:
+### Trap handling
+Implemented stack backtracing and experimented with clock ticks by implementing a periodic alarm handler.
+
+### Copy-on-write (CoW)
+Extended xv6's fork() to adhere to CoW semantics, which reduces physical memory operations by magnitudes - deferring physical memory duplications until a write page fault is triggered.
+
+### Network driver
+Implemented a network driver for the e1000 NIC. Packet reception and transmission via DMA ring buffers in accordance with the E1000 SDM (https://pdos.csail.mit.edu/6.1810/2025/readings/8254x_GBe_SDM.pdf) is adhered to - specifically with respect to DMA ring buffer mechanisms. 
+Appropriate coordination between driver and hardware ownership lifetime is therefore ensured. Received packets are delivered from kernelspace to userspace via the existing network subsystem.
+
+### Memory allocator
+Redesigned xv6's memory allocator with respect to minimizing lock contention under multi-core environments. The global kernel memory freelist is replaced with per-CPU freelists, allowing kalloc()/kfree() operations to execute concurrently in such workloads. Implemented memory borrowing so that, in the case where a CPU's freelist is empty, modest borrowing is implemented in order to maintain the availability of physical memory across cores.
+
+### Read-write spinlock 
+Some syscalls, such as sys_pause and sys_uptime, are inherently limited by the current capability of xv6's spinlock implementations. This repository implements a read-write spinlock in order to permit concurrent readers while adhering to writer-preference semantics in order to avoid starvation.
+
+### File system extensions
+Extended xv6's filesize (~274 kB) limit by providing a doubly-indirect block to each inode. The result is a ~250x maximum size increase. This inherently required modifications to bmap() and itrunc() in order to maintain stateful correctness while handling multi-level block indirectness.
+Implemented symbolic links by adding to xv6's inode types, extending open() to properly handle indirect paths (notably handling cyclic inode references), and adherence to O_NOFOLLOW semantics. 
 
 
-
-
+## Original xv6 Documentation
 
 xv6 is a re-implementation of Dennis Ritchie's and Ken Thompson's Unix
 Version 6 (v6).  xv6 loosely follows the structure and style of v6,
