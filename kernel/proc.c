@@ -392,10 +392,10 @@ kexit(int status)
   vma->valid = 0;
 }  
 
-for(int i = 0; i < MAX_VMA; i++){
+  for(int i = 0; i < MAX_VMA; i++){
   p->vmas[i].valid = 0;
-} // remove later, sanity check
-  // Close all open files.
+} 
+
   for(int fd = 0; fd < NOFILE; fd++){
     if(p->ofile[fd]){
       struct file *f = p->ofile[fd];

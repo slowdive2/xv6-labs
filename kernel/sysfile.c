@@ -522,59 +522,10 @@ int vma_alloc(int n) { // effectively just sbrk; n is gauranteed to be page-alig
   return addr;
 }
 
-// struct vma {
-//     int valid;          // In use ?
-//     uint64 addr;        // Starting VA
-//     uint64 len;         
-//     int prot;           // PROT_READ | PROT_WRITE
-//     int flags;          // MAP_SHARED | MAP_PRIVATE
-//     int offset;         // (should be 0)
-//     struct file *f;     // pointer to the mapped file
-// };
-// set protection flags for a VMA
-
-
-
-//TODO : how to locate the vma for an address ? 
-// void *mmap(void *addr, size_t len, int prot, int flags,
-//            int fd, off_t offset);
-
-/*
-mmmap:
-
-given fd, fetch inode: (f=myproc()->ofile[fd])
-read inode length ; if len > inode length , len = inode length
-
-start addr + len is our vma region
-
-fault hander:
-calculate vma_offset from vma start, read in inode( (va - va_addr)+offset )
-protm, unprot it
-
-
-use readi, mappages, kalloc
-informally:
-
-user requests map
-
-validate args
-
-find_free_vma
-
-occupy up to start_addr + len of vma (dont set any custom page vals, !PTE_V -> fault handler checks vma region)
-
-load vma metadata
-
-fdup(fd)       increase refct, we need this in case a fault happens after close(fd), else we cant read in further data
-
-return start addr 
-
-*/
-
 
 /*
 some invariants:
-every fault addr in userspace either belongs to a VMA or is a segfault (we dont have cow)
+
 the fault handler only needs the vma struct to reconstruct the correct page/permission bits
 every vma must outlive its fd (ensures by fdup)
 MMAP never allocs or loads file-related pages
@@ -601,10 +552,8 @@ sys_mmap(void)
 
   p = myproc();
 
-  if(!(flags & (MAP_SHARED | MAP_PRIVATE))) { // 2 possible flags
-    panic("mmap: no flag\n");
+  if(!(flags & (MAP_SHARED | MAP_PRIVATE)))
     return -1;
-  }
 
   // have we allocated 16 VMAs ?
   free_idx = -1; 
@@ -614,28 +563,22 @@ sys_mmap(void)
       break;
     }
   }
-  if(free_idx == -1) {
-    panic("mmap: no free vma"); // should probably be an error instead
-    return -1;
-  }
 
+  if(free_idx == -1)
+    return -1;
   // can call sbrk() for this, but that's a userspace fn
   vma = &p->vmas[free_idx];
   if(fd < 0 || fd >= NOFILE || !(f = p->ofile[fd])){
-    panic("mmap: fd");
     return -1;
   }
   if(offset > f->ip->size  /*|| len > f->ip->size - offset*/){
-    panic("mmap: offset");
     return -1;
   }
   len = PGROUNDUP(len);
   if(!(vma->addr = vma_alloc(len))){
-    panic("mmap: vma_alloc");
     return -1;
   }
   if(!(prot & (PROT_READ | PROT_WRITE))) { // 2 possible prots
-    panic("mmap: no prot\n");
     return -1;
   }
   if ((prot & PROT_READ) && !f->readable)
@@ -692,7 +635,7 @@ sys_munmap(void)
       continue;
     }
 
-    if(!(vma->child_vma) && vma->flags & MAP_SHARED /*&& (*pte & PTE_W)*/){
+    if(!(vma->child_vma) && vma->flags & MAP_SHARED){
       uint64 i_off = (addr - vma->addr) + vma->offset;
 
       pa = PTE2PA(*pte);
@@ -734,27 +677,3 @@ sys_munmap(void)
   vma->offset += len;
   return 0;
 }
-
-// struct vma {
-//     int valid;          // In use ?
-//     uint64 addr;        // Starting VA
-//     uint64 len;         
-//     int prot;           // PROT_READ | PROT_WRITE
-//     int flags;          // MAP_SHARED | MAP_PRIVATE
-//     int offset;         // (should be 0)
-//     struct file *f;     // pointer to the mapped file
-// };
-// set protection flags for a VMA
-
-// prob check dirty bits
-// find VMA  
-  
-// for each page in range:  
-// pa = va_2_pa(addr)
-// write pa contents to file offset  
-// uvmunmap(page, free=1)  
-  
-// update VMA metadata  
-  
-// if VMA.len == 0:
-// fileclose()

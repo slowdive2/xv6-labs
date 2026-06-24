@@ -82,12 +82,12 @@ struct trapframe {
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
 struct vma {
-    int valid;          // In use ?
-    uint64 addr;        // Starting VA
+    int valid;        
+    uint64 addr;        // start of VA
     uint64 len;         
     int prot;           // PROT_READ | PROT_WRITE
     int flags;          // MAP_SHARED | MAP_PRIVATE
-    int offset;         // (should be 0)
+    int offset;         // (0 in tests)
     struct file *f;     // pointer to the mapped file
 
     int child_vma;
