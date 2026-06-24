@@ -28,7 +28,7 @@ Extended xv6's filesize (~274 kB) limit by providing a doubly-indirect block to 
 Implemented symbolic links by adding to xv6's inode types, extending open() to properly handle indirect paths (notably handling cyclic inode references), and adherence to O_NOFOLLOW semantics. 
 
 ## Testing
-Each module branch contains a comprehensive & automated test for the feature being provided. Stress tests for concurrency, memory, and filesystem correctness are validated against for the appropriate feature.
+Each module branch contains a comprehensive & automated test for the feature being provided. Stress tests for concurrency, memory, and filesystem correctness are validated against for the corresponding feature.
 
 ## Original xv6 Documentation
 
