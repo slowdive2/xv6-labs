@@ -1,7 +1,7 @@
 ## Kernel Modules Implemented
 
 ### mmap
-Implemented memory-mapped files in xv6 through the implementation of per-process virtual memory areas (VMAs). mmap is able to reserve address space through VMA semantics and to associate the regions with specific files. 
+Implemented memory-mapped files in xv6 through the addition of per-process virtual memory areas (VMAs). mmap is able to reserve address space through VMA semantics and to associate the regions with specific files. 
 This inherently required a restructuring of the xv6 page fault handler. In favor of efficiency, physical memory population and page allocation is deferred to access time, as opposed to an immediate population of the VMA. 
 Implemented munmap() to remove mappings, flush modified pages back to disk for MAP_SHARED, and release associated resources.
 Adherence to exit() semantics is followed: on process exit, VMAs are cleanly uninstalled from the process's address space and memory. 
@@ -18,14 +18,14 @@ Implemented a network driver for the e1000 NIC. Packet reception and transmissio
 Appropriate coordination between driver and hardware ownership lifetime is therefore ensured. Received packets are delivered from kernelspace to userspace via the existing network subsystem.
 
 ### Memory allocator
-Redesigned xv6's memory allocator with respect to minimizing lock contention under multi-core environments. The global kernel memory freelist is replaced with per-CPU freelists, allowing kalloc()/kfree() operations to execute concurrently in such workloads. Implemented memory borrowing so that, in the case where a CPU's freelist is empty, modest borrowing is implemented in order to maintain the availability of physical memory across cores.
+Redesigned xv6's memory allocator with the intent of minimizing lock contention under multi-core environments. The global kernel memory freelist is replaced with per-CPU freelists, allowing kalloc()/kfree() operations to execute concurrently in such workloads. Implemented memory borrowing so that, in the case where a CPU's freelist is empty, modest borrowing is implemented in order to maintain the availability of physical memory across cores.
 
 ### Read-write spinlock 
 Some syscalls, such as sys_pause and sys_uptime, are inherently limited by the current capability of xv6's spinlock implementations. This repository implements a read-write spinlock in order to permit concurrent readers while adhering to writer-preference semantics in order to avoid starvation.
 
 ### File system extensions
-Extended xv6's filesize (~274 kB) limit by providing a doubly-indirect block to each inode. The result is a ~250x maximum size increase. This inherently required modifications to bmap() and itrunc() in order to maintain stateful correctness while handling multi-level block indirectness.
-Implemented symbolic links by adding to xv6's inode types, extending open() to properly handle indirect paths (notably handling cyclic inode references), and adherence to O_NOFOLLOW semantics. 
+Extended xv6's filesize (~274 kB) limit by providing a doubly-indirect block to each inode. The result is a ~250x maximum size increase. This inherently required modifications to bmap() and itrunc() in order to maintain correctness while handling multi-level block indirection.
+Implemented symbolic links by modifying xv6's inode structure, extending open() to properly handle indirect paths (notably handling cyclic inode references), and adherence to O_NOFOLLOW semantics. 
 
 ## Testing
 Each module branch contains a comprehensive & automated test for the feature being provided. Stress tests for concurrency, memory, and filesystem correctness are validated against for the corresponding feature.
