@@ -1,4 +1,5 @@
 ## Kernel Modules Implemented
+
 ### mmap
 Implemented memory-mapped files in xv6 through the implementation of per-process virtual memory areas (VMAs). mmap is able to reserve address space through VMA semantics and to associate the regions with specific files. 
 This inherently required a restructuring of the xv6 page fault handler. In favor of efficiency, physical memory population and page allocation is deferred to access time, as opposed to an immediate population of the VMA. 
@@ -26,6 +27,8 @@ Some syscalls, such as sys_pause and sys_uptime, are inherently limited by the c
 Extended xv6's filesize (~274 kB) limit by providing a doubly-indirect block to each inode. The result is a ~250x maximum size increase. This inherently required modifications to bmap() and itrunc() in order to maintain stateful correctness while handling multi-level block indirectness.
 Implemented symbolic links by adding to xv6's inode types, extending open() to properly handle indirect paths (notably handling cyclic inode references), and adherence to O_NOFOLLOW semantics. 
 
+## Testing
+Each module branch contains a comprehensive & automated test for the feature being provided. Stress tests for concurrency, memory, and filesystem correctness are validated against for the appropriate feature.
 
 ## Original xv6 Documentation
 
